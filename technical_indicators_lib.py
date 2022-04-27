@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Mon Apr 11 22:02:06 2022
+
+@author: Stephen
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Created on Wed Apr  6 10:46:33 2022
 
 @author: Stephen Crawford 
@@ -95,6 +103,42 @@ def SMA_ratio(dataframe, window_size):
     
     return ratio
     
+"""
+Helper function calculate the Exponential Moving Average of a dataframe. 
+
+
+@param dataframe: A dataframe of the price history of the stocks whose EMA you want to calculate. 
+@param window_size: The number of days that the EMA should be calculated over. 
+@param alpha: An optional parameter for a custom weight function
+@return a dataframe containing the EMA-window_size for the stocks in the original dataframe. 
+"""
+def EMA(dataframe, window_size, alpha=None):
+    
+    alpha = 2 / (window_size + 1)
+    if alpha: 
+        alpha = alpha
+    
+    sma = SMA(dataframe, window_size)
+    ema_df = sma 
+    
+    
+    return ema_df
+
+
+"""
+Helper function to calculate the momentum of the stocks in the provided dataframe. 
+
+This function uses a cumulative returns calculation of momentum. 
+
+@param dataframe: A dataframe of the stocks which you wish to calculate the momentum of.
+@param window_size: The size of the window you want to calculate the momentum with (range of cumulative returns)
+@return a dataframe of with the momentum of each of the stocks in the original dataframe.
+"""
+def Momentum(dataframe, window_size):
+        
+    momentum = dataframe.rolling(window=window_size, min_periods=window_size).sum()
+    
+    return momentum
     
 """
 Helper function to calculate the Bollinger Bands of a dataframe. 
@@ -107,17 +151,18 @@ Adapted from vectorized code handout.
 """
 def Bollinger_Bands(dataframe, window_size, band_range=2):
     
-    sma_df = dataframe.copy()
+    sma_df = dataframe
     sma_df.columns = ["Price"]
     sma_df["SMA"] = sma_df["Price"].rolling(window=window_size, min_periods=window_size).mean()
     rolling_std = sma_df["Price"].rolling(window=window_size, min_periods=window_size).std()
     top_band = sma_df["SMA"] + (band_range * rolling_std)
     bottom_band = sma_df["SMA"] - (band_range * rolling_std)
     sma_df["Top Band"] = top_band
-    bb = sma_df
-    bb["Bottom Band"] = bottom_band
-   
-    return bb
+    bb_sma = sma_df
+    bb_sma["Bottom Band"] = bottom_band
+
+    
+    return bb_sma 
 
 
 """
@@ -136,6 +181,81 @@ def Bollinger_Bands_Percentage(dataframe, window_size, band_range=2):
 
     bb_sma_df["BB Percentage"] = (bb_sma_df["Price"] - bb_sma_df["Bottom Band"]) / (bb_sma_df["Top Band"] - bb_sma_df["Bottom Band"])
     return bb_sma_df
+
+
+"""
+Helper function to calculate the Relative Strength Index for the date range. 
+
+Adapted from vectorized code handout. 
+
+@param dataframe: A dataframe of the stocks to calculate the RSI for.
+@param window_size: The time slice that the RSI should be calculated using. 
+@return a dataframe of the RSI for each of the stocks in the dataframe over the time period. 
+"""
+def Relative_Strength_Index(dataframe, window_size=14):
+    
+    rsi = dataframe.copy()
+    daily_returns = dataframe.copy()
+    daily_returns.values[1:,:] = dataframe.values[1:,:] - dataframe.values[:-1, :]
+    daily_returns.values[0, :] = np.nan
+    
+    up_returns = daily_returns[daily_returns >= 0].fillna(0).cumsum()
+    down_returns = -1 * daily_returns[daily_returns < 0].fillna(0).cumsum()
+    
+    up_day_gains = dataframe.copy()
+    up_day_gains.loc[:,:] = 0
+    up_day_gains.values[window_size:,:] = up_returns.values[window_size:,:] - up_returns.values[:-window_size,:]
+
+    down_day_losses = dataframe.copy()
+    down_day_losses.loc[:,:] = 0
+    down_day_losses.values[window_size:,:] = down_returns.values[window_size:,:] - down_returns.values[:-window_size,:]
+    
+    relative_strength = (up_day_gains / window_size) / (down_day_losses / window_size)
+    rsi = 100 - (100/ (1 + relative_strength))
+    rsi.iloc[:window_size, :] = np.nan
+    
+    rsi[rsi == np.inf] = 100
+    
+    return rsi
+
+"""
+Helper function to compute the Moving Average Convergence/Divergence of a dataframe.
+
+
+@param dataframe: The stocks whose values we want to compute the MACD for
+@param window_size_1: The first time frame for a moving average we want to consider
+@param window_size_2: The second time scale for a moving average we want to consider
+@return a series of differences between the two moving averages
+"""
+def MACD(dataframe, window_size_1, window_size_2):
+    
+    if window_size_1 <= window_size_2:
+        short_term_size = window_size_1
+        long_term_size = window_size_2
+    else: 
+        short_term_size = window_size_2
+        long_term_size = window_size_1
+    
+    ema_short = EMA(dataframe, short_term_size)
+    ema_long = EMA(dataframe, long_term_size)
+    
+    moving_difference = ema_short - ema_long
+    
+    return moving_difference
+
+
+"""
+Helper function to compute the singal line of a dataframe.
+
+Used specifically for MACD Oscillation strategies. 
+
+@param dataframe: The series we want to compute the signal line for. 
+@window_size: The time we want to consider the moving average with regard to.
+@return a series of the EMA of the original dataframe.
+"""
+def Signal(dataframe, window_size):
+    
+    return EMA(dataframe, window_size)
 
 
 """
@@ -177,6 +297,43 @@ def On_Balance_Volume(price_dataframe, volume_dataframe):
     return obv
     
     
+    
+"""
+A helper function used to calculate the Aroon oscillator using a Aroon Indicator. 
+Measures strength of trend and likelihood to continue. 
+
+Found on Stackoverflow as posted by @user TheAfricanQuant https://stackoverflow.com/questions/47950466/how-to-build-aroon-indicator-with-python-pandas
+
+@param dataframe: The data for the stocks whose oscillation we want to determine.
+@param window_size: The number of periods to look at for the indicators
+@return A dataframe containing the Aroon Up and Aroon Down values as well as the Aroon Oscillator value itself. 
+"""
+def Aroon_Oscillator(dataframe, window_size=25): 
+    
+   aroon = dataframe.copy()
+   aroon.columns = ['Price']
+   aroon['Up'] = (100 * aroon['Price'].rolling(window_size + 1).apply(lambda x : x.argmax()) / window_size).values
+   aroon['Down'] = (100 * aroon['Price'].rolling(window_size + 1).apply(lambda x : x.argmin()) / window_size).values
+    
+   return aroon
+
+"""
+A helper function used to calculate the stochastic oscillatorr of a given dataframe. 
+
+
+@param dataframe: The data for the stocks we want to calculate the oscillator for.
+@param window_size: The time period to determine the oscillator with regard to. 
+@return A dataframe of the oscillator values for the stocks over the range. 
+"""
+def Stochastic_Oscillator(dataframe, window_size=14):
+    
+    numerator = (dataframe - dataframe.rolling(window_size, min_periods=window_size).min())
+    denominator = (dataframe.rolling(window_size, min_periods=window_size).max()- dataframe.rolling(window_size, min_periods=window_size).min())
+    oscillator = 100 * (numerator / denominator)
+    
+    
+    return oscillator 
+    
 """
 A helper function used to calculate the William's Precentage Range for a dataframe.
 
@@ -190,6 +347,7 @@ def Williams_Percentage_Range(dataframe, window_size=14):
     numerator = (price.rolling(window_size, min_periods=window_size).max() - price)
     denominator = (price.rolling(window_size, min_periods=window_size).max() - price.rolling(window_size, min_periods=window_size).min())
     price['Williams Percentage'] = (numerator/denominator) * -100
+    
     return price
     
     
